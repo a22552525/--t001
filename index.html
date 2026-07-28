@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>計算機</title>
+<style>
+  :root{
+    --bg:#171512;
+    --panel:#211E19;
+    --key:#2B2722;
+    --key-hover:#332E27;
+    --op:#C77B3C;
+    --op-active:#E08F49;
+    --func:#8C8378;
+    --text:#F3EEE6;
+    --muted:#9A9184;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:
+      radial-gradient(circle at 20% -10%, rgba(199,123,60,0.08), transparent 45%),
+      var(--bg);
+    font-family:var(--sans);
+    display:flex;align-items:center;justify-content:center;
+    min-height:100vh;padding:20px;
+  }
+  .calc{
+    width:100%;max-width:340px;
+    background:var(--panel);
+    border:1px solid #322D26;
+    border-radius:22px;
+    padding:18px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.4);
+  }
+  .eyebrow{
+    font-family:var(--mono);font-size:10px;color:var(--op);
+    letter-spacing:.16em;text-transform:uppercase;margin-bottom:10px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .eyebrow::before{content:"";width:5px;height:5px;background:var(--op);border-radius:50%;}
+
+  .display{
+    padding:22px 6px 14px;
+    text-align:right;
+    min-height:96px;
+    display:flex;flex-direction:column;justify-content:flex-end;
+    overflow:hidden;
+  }
+  .expr{
+    font-family:var(--mono);font-size:14px;color:var(--muted);
+    min-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .result{
+    font-family:var(--mono);font-size:44px;font-weight:600;color:var(--text);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transition:transform .12s ease;
+  }
+  .result.pulse{transform:scale(0.97);}
+
+  .keys{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:10px;
+    margin-top:8px;
+  }
+  button{
+    border:none;border-radius:14px;
+    font-family:var(--mono);font-size:19px;
+    height:60px;cursor:pointer;
+    color:var(--text);background:var(--key);
+    transition:background .12s, transform .08s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  button:active{transform:scale(0.95);}
+  button:hover{background:var(--key-hover);}
+
+  .fn{color:var(--func);background:var(--key);font-size:16px;}
+  .op{background:transparent;color:var(--op);border:1px solid #3A342B;font-size:22px;}
+  .op.active{background:var(--op);color:#1A1712;}
+  .eq{background:var(--op);color:#1A1712;font-weight:700;}
+  .eq:hover{background:var(--op-active);}
+  .zero{grid-column:span 2;}
+
+  footer{
+    margin-top:14px;text-align:center;color:var(--muted);
+    font-size:10.5px;font-family:var(--mono);letter-spacing:.04em;
+  }
+</style>
+</head>
+<body>
+<div class="calc">
+  <div class="eyebrow">CALCULATOR</div>
+  <div class="display">
+    <div class="expr" id="expr">&nbsp;</div>
+    <div class="result" id="result">0</div>
+  </div>
+  <div class="keys">
+    <button class="fn" data-action="clear">AC</button>
+    <button class="fn" data-action="sign">±</button>
+    <button class="fn" data-action="percent">%</button>
+    <button class="op" data-op="÷">÷</button>
+
+    <button data-num="7">7</button>
+    <button data-num="8">8</button>
+    <button data-num="9">9</button>
+    <button class="op" data-op="×">×</button>
+
+    <button data-num="4">4</button>
+    <button data-num="5">5</button>
+    <button data-num="6">6</button>
+    <button class="op" data-op="−">−</button>
+
+    <button data-num="1">1</button>
+    <button data-num="2">2</button>
+    <button data-num="3">3</button>
+    <button class="op" data-op="+">+</button>
+
+    <button class="zero" data-num="0">0</button>
+    <button data-action="decimal">.</button>
+    <button class="eq" data-action="equals">=</button>
+  </div>
+  <footer>支援鍵盤輸入 · 0-9 + − × ÷ Enter Esc</footer>
+</div>
+
+<script>
+const exprEl = document.getElementById('expr');
+const resultEl = document.getElementById('result');
+
+let current = '0';      // number currently being typed
+let previous = null;    // stored previous value
+let operator = null;    // pending operator
+let justEvaluated = false;
+let exprText = '';
+
+function formatNum(n){
+  if(n === '' || n === '-') return n;
+  const num = Number(n);
+  if(!isFinite(num)) return '錯誤';
+  let s = num.toLocaleString('en-US', {maximumFractionDigits: 8});
+  return s;
+}
+
+function render(){
+  resultEl.textContent = formatNum(current);
+  exprEl.textContent = exprText || '\u00A0';
+  resultEl.classList.add('pulse');
+  setTimeout(()=>resultEl.classList.remove('pulse'), 100);
+  clearActiveOps();
+}
+
+function clearActiveOps(){
+  document.querySelectorAll('.op').forEach(b=>b.classList.remove('active'));
+}
+
+function inputNum(d){
+  if(justEvaluated){
+    current = '0';
+    exprText = '';
+    justEvaluated = false;
+  }
+  if(current === '0' && d !== '.') current = d;
+  else if(d === '.' && current.includes('.')) return;
+  else current += d;
+  render();
+}
+
+function inputOperator(op){
+  if(operator && previous !== null && !justEvaluated){
+    compute();
+  }
+  previous = current;
+  operator = op;
+  exprText = formatNum(previous) + ' ' + op;
+  current = '0';
+  justEvaluated = false;
+  render();
+  document.querySelectorAll('.op').forEach(b=>{
+    if(b.dataset.op === op) b.classList.add('active');
+  });
+}
+
+function compute(){
+  if(operator === null || previous === null) return;
+  const a = parseFloat(previous);
+  const b = parseFloat(current);
+  let r;
+  switch(operator){
+    case '+': r = a + b; break;
+    case '−': r = a - b; break;
+    case '×': r = a * b; break;
+    case '÷': r = b === 0 ? NaN : a / b; break;
+    default: return;
+  }
+  exprText = formatNum(a) + ' ' + operator + ' ' + formatNum(b) + ' =';
+  current = isNaN(r) ? '錯誤' : String(r);
+  previous = null;
+  operator = null;
+  justEvaluated = true;
+  render();
+}
+
+function clearAll(){
+  current = '0';
+  previous = null;
+  operator = null;
+  exprText = '';
+  justEvaluated = false;
+  render();
+}
+
+function toggleSign(){
+  if(current === '0') return;
+  current = current.startsWith('-') ? current.slice(1) : '-' + current;
+  render();
+}
+
+function percent(){
+  current = String(parseFloat(current) / 100);
+  render();
+}
+
+document.querySelectorAll('[data-num]').forEach(b=>{
+  b.addEventListener('click', ()=>inputNum(b.dataset.num));
+});
+document.querySelectorAll('[data-op]').forEach(b=>{
+  b.addEventListener('click', ()=>inputOperator(b.dataset.op));
+});
+document.querySelector('[data-action="decimal"]').addEventListener('click', ()=>inputNum('.'));
+document.querySelector('[data-action="clear"]').addEventListener('click', clearAll);
+document.querySelector('[data-action="sign"]').addEventListener('click', toggleSign);
+document.querySelector('[data-action="percent"]').addEventListener('click', percent);
+document.querySelector('[data-action="equals"]').addEventListener('click', compute);
+
+window.addEventListener('keydown', (e)=>{
+  if(e.key >= '0' && e.key <= '9') inputNum(e.key);
+  else if(e.key === '.') inputNum('.');
+  else if(e.key === '+') inputOperator('+');
+  else if(e.key === '-') inputOperator('−');
+  else if(e.key === '*') inputOperator('×');
+  else if(e.key === '/'){ e.preventDefault(); inputOperator('÷'); }
+  else if(e.key === 'Enter' || e.key === '=') compute();
+  else if(e.key === 'Escape') clearAll();
+  else if(e.key === 'Backspace'){
+    current = current.length > 1 ? current.slice(0,-1) : '0';
+    render();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
